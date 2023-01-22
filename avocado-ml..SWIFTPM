@@ -1,0 +1,113 @@
+import UIKit
+import Vision
+import VisionKit
+import CoreML
+
+class ViewController: UIViewController {
+    var picker:UIImagePickerController!
+    
+    var imageProcessor:AvocadoRipe!
+    @IBOutlet weak var resultImage: UIImageView!
+    
+    lazy var classificationRequest: VNCoreMLRequest = {
+        do {
+            let model = try VNCoreMLModel(for: AvocadoRipe().model)
+            
+            let request = VNCoreMLRequest(model: model, completionHandler: { [weak self] request, error in
+                self?.processClassifications(for: request, error: error)
+            })
+            request.imageCropAndScaleOption = .centerCrop
+            return request
+        } catch {
+            fatalError("Failed to load Vision ML model: \(error)")
+        }
+    }()
+    
+    
+    @IBOutlet weak var imageResult: UILabel!
+    @IBAction func processImage(_ sender: Any) {
+        picker.sourceType = .photoLibrary
+
+        present(picker, animated: true, completion: nil)
+    }
+    
+    func processClassifications(for request: VNRequest, error: Error?) {
+        DispatchQueue.main.async {
+            guard let results = request.results else {
+                self.imageResult.text = "Unable to classify image.\n\(error!.localizedDescription)"
+                return
+            }
+            let classifications = results as! [VNClassificationObservation]
+        
+            if classifications.isEmpty {
+                self.imageResult.text = "Nothing recognized."
+            } else {
+                // Display top classifications ranked by confidence in the UI.
+                let topClassification = classifications[0]
+                if topClassification.identifier == "Avocado" {
+                    self.imageResult.text = "Not Ripe yet ☹️"
+                }
+                else if topClassification.identifier == "Avocado ripe" {
+                    self.imageResult.text = "Ripe, Enjoy 👍"
+                }
+            }
+        }
+    }
+    
+    
+    func updateClassifications(for image: UIImage) {
+        imageResult.isHidden = false
+        imageResult.text = "Thinking..."
+        
+        let orientation = CGImagePropertyOrientation(rawValue: UInt32(image.imageOrientation.rawValue))
+        guard let ciImage = CIImage(image: image) else { fatalError("Unable to create \(CIImage.self) from \(image).") }
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let handler = VNImageRequestHandler(ciImage: ciImage, orientation: orientation!)
+            do {
+                try handler.perform([self.classificationRequest])
+            } catch {
+                /*
+                 This handler catches general image processing errors. The `classificationRequest`'s
+                 completion handler `processClassifications(_:error:)` catches errors specific
+                 to processing that request.
+                 */
+                print("Failed to perform classification.\n\(error.localizedDescription)")
+            }
+        }
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        picker = UIImagePickerController()
+        
+        picker.delegate = self
+        imageResult.isHidden = true
+        // Do any additional setup after loading the view.
+    }
+
+
+}
+
+extension ViewController:UIImagePickerControllerDelegate {
+    public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        dismiss(animated: true, completion: nil)
+    }
+
+    public func imagePickerController(_ picker: UIImagePickerController,
+                                      didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        guard let image = info[.originalImage] as? UIImage else {
+            return
+        }
+        resultImage.image = image
+        imageResult.isHidden = false
+
+         dismiss(animated: true, completion: nil)
+        updateClassifications(for: image)
+
+        
+    }
+}
+extension ViewController:UINavigationControllerDelegate {
+    
+}
